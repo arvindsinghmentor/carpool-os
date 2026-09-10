@@ -803,21 +803,20 @@ export type Database = {
         }
       }
       get_public_profiles: {
-        Args: { _ids: string[] }
-        Returns: {
-          account_status: string
-          created_at: string
-          gender: string
-          id: string
-          is_demo: boolean
-          name: string
-          profile_photo: string
-          rating: number
-          reliability_score: number
-          role: string
-          verification_status: string
-        }[]
-      }
+              Args: { _ids: string[] }
+              Returns: {
+                account_status: string
+                created_at: string
+                gender: string
+                id: string
+                name: string
+                profile_photo: string
+                rating: number
+                reliability_score: number
+                role: string
+                verification_status: string
+              }[]
+            }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

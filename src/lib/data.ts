@@ -10,7 +10,6 @@ export type PublicProfile = {
   rating: number;
   reliability_score: number;
   account_status: string;
-  is_demo: boolean;
   created_at: string;
 };
 
