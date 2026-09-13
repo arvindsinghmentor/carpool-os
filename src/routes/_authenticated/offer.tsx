@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Car, MapPin, Clock, CalendarDays, Users } from "lucide-react";
+import { CalendarDays, Clock, MapPin, Users } from "lucide-react";
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,8 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState, ErrorState, Loading, PageTitle } from "@/components/states";
-import { errorMessage, formatTime, inr, todayISO } from "@/lib/format";
-import { z } from "zod";
+import { formatTime, inr, todayISO } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/offer")({
   head: () => ({
@@ -43,45 +42,45 @@ type RouteRow = {
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
-const publishRideSchema = z.object({
+export const publishRideSchema = z.object({
   routeId: z.string().uuid("Please select a valid route."),
   date: z
     .string()
     .regex(datePattern, "Please enter a valid date.")
-    .refine(
-      (date) => {
-        const selectedDate = new Date(`${date}T00:00:00`);
-        const today = new Date(todayISO());
-        return selectedDate >= today;
-      },
-      "Departure date must be today or later.",
-    ),
+    .refine((d) => {
+      const selectedDate = new Date(`${d}T00:00:00`);
+      const today = new Date(`${todayISO()}T00:00:00`);
+      return selectedDate >= today;
+    }, "Departure date must be today or later."),
   departureTime: z
     .string()
-    .regex(timePattern, "Please enter a valid time in HH:mm format."),
+    .regex(timePattern, "Please enter a valid departure time in HH:mm format."),
   availableSeats: z
     .number({
       required_error: "Available seats is required.",
       invalid_type_error: "Available seats must be a number.",
     })
     .int("Available seats must be a whole number.")
-    .min(1, "Available seats must be at least 1.")
-    .max(6, "Available seats cannot exceed 6."),
+    .min(1, "Available seats must be between 1 and 6.")
+    .max(6, "Available seats must be between 1 and 6."),
   farePerSeat: z
     .number({
       required_error: "Fare per seat is required.",
       invalid_type_error: "Fare per seat must be a number.",
     })
-    .int("Fare must be a whole number.")
-    .min(0, "Fare must be at least ₹0.")
-    .max(5000, "Fare cannot exceed ₹5,000."),
+    .min(0, "Fare must be between ₹0 and ₹5,000.")
+    .max(5000, "Fare must be between ₹0 and ₹5,000."),
 });
 
-type PublishRideFormValues = z.infer<typeof publishRideSchema>;
+export type PublishRideFormValues = z.infer<typeof publishRideSchema>;
 
-type PublishRideFormErrors = Partial<
-  Record<keyof PublishRideFormValues, string>
->;
+type FormErrors = {
+  routeId?: string;
+  date?: string;
+  departureTime?: string;
+  availableSeats?: string;
+  farePerSeat?: string;
+};
 
 function OfferPage() {
   const [selectedRouteId, setSelectedRouteId] = useState("");
@@ -89,79 +88,126 @@ function OfferPage() {
   const [departureTime, setDepartureTime] = useState("");
   const [availableSeats, setAvailableSeats] = useState("");
   const [farePerSeat, setFarePerSeat] = useState("");
-  const [errors, setErrors] = useState<PublishRideFormErrors>({});
+  const [errors, setErrors] = useState<FormErrors>({});
 
   const routesQuery = useQuery({
     queryKey: ["offer-routes"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("routes")
-        .select("id, origin_text, destination_text, departure_time, recurring_days, created_at")
+        .select("id, user_id, origin_text, destination_text, departure_time, recurring_days, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as RouteRow[];
     },
   });
 
-  const selectedRoute = routesQuery.data?.find(
-    (r) => r.id === selectedRouteId,
-  );
+  const selectedRoute = routesQuery.data?.find((r) => r.id === selectedRouteId);
 
-  function validate(values: Partial<PublishRideFormValues>) {
-    const result = publishRideSchema.safeParse(values);
-    if (result.success) return {};
+  function validate(fields: {
+    routeId: string;
+    date: string;
+    departureTime: string;
+    availableSeats: string;
+    farePerSeat: string;
+  }): FormErrors {
+    const rawData = {
+      routeId: fields.routeId,
+      date: fields.date,
+      departureTime: fields.departureTime,
+      availableSeats: fields.availableSeats === "" ? NaN : Number(fields.availableSeats),
+      farePerSeat: fields.farePerSeat === "" ? NaN : Number(fields.farePerSeat),
+    };
 
-    const fieldErrors: PublishRideFormErrors = {};
-    for (const issue of result.error.issues) {
-      const field = issue.path[0] as keyof PublishRideFormValues;
-      if (field && !fieldErrors[field]) {
-        fieldErrors[field] = issue.message;
+    const res = publishRideSchema.safeParse(rawData);
+    if (res.success) return {};
+
+    const errs: FormErrors = {};
+    for (const issue of res.error.issues) {
+      const field = issue.path[0] as keyof FormErrors;
+      if (field && !errs[field]) {
+        errs[field] = issue.message;
       }
     }
-    return fieldErrors;
+    return errs;
   }
 
-  function updateField<K extends keyof PublishRideFormValues>(
-    field: K,
-    value: PublishRideFormValues[K],
-  ) {
-    const nextValues: Partial<PublishRideFormValues> = {
+  function handleRouteChange(newRouteId: string) {
+    setSelectedRouteId(newRouteId);
+    const updated = {
+      routeId: newRouteId,
+      date,
+      departureTime,
+      availableSeats,
+      farePerSeat,
+    };
+    setErrors(validate(updated));
+  }
+
+  function handleDateChange(newDate: string) {
+    setDate(newDate);
+    const updated = {
+      routeId: selectedRouteId,
+      date: newDate,
+      departureTime,
+      availableSeats,
+      farePerSeat,
+    };
+    setErrors(validate(updated));
+  }
+
+  function handleDepartureTimeChange(newTime: string) {
+    setDepartureTime(newTime);
+    const updated = {
+      routeId: selectedRouteId,
+      date,
+      departureTime: newTime,
+      availableSeats,
+      farePerSeat,
+    };
+    setErrors(validate(updated));
+  }
+
+  function handleSeatsChange(newSeats: string) {
+    setAvailableSeats(newSeats);
+    const updated = {
       routeId: selectedRouteId,
       date,
       departureTime,
-      availableSeats: availableSeats === "" ? undefined : Number(availableSeats),
-      farePerSeat: farePerSeat === "" ? undefined : Number(farePerSeat),
+      availableSeats: newSeats,
+      farePerSeat,
     };
-    (nextValues as Record<string, unknown>)[field] = value;
-
-    setDate(nextValues.date ?? "");
-    setDepartureTime(nextValues.departureTime ?? "");
-    setAvailableSeats(String(nextValues.availableSeats ?? ""));
-    setFarePerSeat(String(nextValues.farePerSeat ?? ""));
-    setSelectedRouteId(nextValues.routeId ?? "");
-    setErrors(validate(nextValues));
+    setErrors(validate(updated));
   }
 
-  const hasAnyValue =
-    selectedRouteId !== "" ||
-    date !== "" ||
-    departureTime !== "" ||
-    availableSeats !== "" ||
-    farePerSeat !== "";
+  function handleFareChange(newFare: string) {
+    setFarePerSeat(newFare);
+    const updated = {
+      routeId: selectedRouteId,
+      date,
+      departureTime,
+      availableSeats,
+      farePerSeat: newFare,
+    };
+    setErrors(validate(updated));
+  }
 
-  const previewValues = publishRideSchema.safeParse({
-    routeId: selectedRouteId,
-    date,
-    departureTime,
-    availableSeats: availableSeats === "" ? undefined : Number(availableSeats),
-    farePerSeat: farePerSeat === "" ? undefined : Number(farePerSeat),
-  });
+  const numSeats = availableSeats === "" ? NaN : Number(availableSeats);
+  const numFare = farePerSeat === "" ? NaN : Number(farePerSeat);
+  const totalFare = !Number.isNaN(numSeats) && !Number.isNaN(numFare) ? numSeats * numFare : 0;
+
+  const showPreview =
+    Boolean(selectedRoute) ||
+    Boolean(date) ||
+    Boolean(departureTime) ||
+    Boolean(availableSeats) ||
+    Boolean(farePerSeat);
 
   return (
     <div>
       <PageTitle title="Publish a Ride" subtitle="Share your commute" />
 
-      <form className="space-y-4" noValidate>
+      <form className="space-y-4" onSubmit={(e) => e.preventDefault()} noValidate>
         <section className="rounded-lg border border-border bg-card p-4 space-y-4">
           <div>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -181,15 +227,9 @@ function OfferPage() {
             {routesQuery.data && routesQuery.data.length > 0 && (
               <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="route">Select Route</Label>
-                  <Select
-                    value={selectedRouteId}
-                    onValueChange={(value) => {
-                      setSelectedRouteId(value);
-                      setErrors((prev) => ({ ...prev, routeId: undefined }));
-                    }}
-                  >
-                    <SelectTrigger id="route">
+                  <Label htmlFor="route-select">Select Route</Label>
+                  <Select value={selectedRouteId} onValueChange={handleRouteChange}>
+                    <SelectTrigger id="route-select">
                       <SelectValue placeholder="Choose a saved route" />
                     </SelectTrigger>
                     <SelectContent>
@@ -201,7 +241,7 @@ function OfferPage() {
                     </SelectContent>
                   </Select>
                   {errors.routeId && (
-                    <p className="text-sm text-destructive">{errors.routeId}</p>
+                    <p className="text-xs font-medium text-destructive">{errors.routeId}</p>
                   )}
                 </div>
 
@@ -228,7 +268,7 @@ function OfferPage() {
                       </p>
                     </div>
                     <Badge variant="secondary">
-                      {selectedRoute.recurring_days.length > 0
+                      {selectedRoute.recurring_days && selectedRoute.recurring_days.length > 0
                         ? `Runs: ${selectedRoute.recurring_days.join(", ")}`
                         : "One-off"}
                     </Badge>
@@ -238,123 +278,112 @@ function OfferPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* 1. Date input */}
             <div className="space-y-1.5">
-              <Label htmlFor="date">Departure Date</Label>
+              <Label htmlFor="departure-date">Departure Date</Label>
               <Input
-                id="date"
+                id="departure-date"
                 type="date"
-                value={date}
                 min={todayISO()}
-                onChange={(e) => {
-                  setDate(e.target.value);
-                  setErrors((prev) => ({ ...prev, date: undefined }));
-                  updateField("date", e.target.value);
-                }}
+                value={date}
+                onChange={(e) => handleDateChange(e.target.value)}
               />
               {errors.date && (
-                <p className="text-sm text-destructive">{errors.date}</p>
+                <p className="text-xs font-medium text-destructive">{errors.date}</p>
               )}
             </div>
 
+            {/* 2. Time input */}
             <div className="space-y-1.5">
-              <Label htmlFor="departureTime">Departure Time</Label>
+              <Label htmlFor="departure-time">Departure Time</Label>
               <Input
-                id="departureTime"
+                id="departure-time"
                 type="time"
                 value={departureTime}
-                onChange={(e) => {
-                  setDepartureTime(e.target.value);
-                  setErrors((prev) => ({ ...prev, departureTime: undefined }));
-                  updateField("departureTime", e.target.value);
-                }}
+                onChange={(e) => handleDepartureTimeChange(e.target.value)}
               />
               {errors.departureTime && (
-                <p className="text-sm text-destructive">
-                  {errors.departureTime}
-                </p>
+                <p className="text-xs font-medium text-destructive">{errors.departureTime}</p>
               )}
             </div>
 
+            {/* 3. Available seats input */}
             <div className="space-y-1.5">
-              <Label htmlFor="availableSeats">Available Seats</Label>
+              <Label htmlFor="available-seats">Available Seats</Label>
               <Input
-                id="availableSeats"
+                id="available-seats"
                 type="number"
-                min="1"
-                max="6"
+                min={1}
+                max={6}
                 value={availableSeats}
-                onChange={(e) => {
-                  setAvailableSeats(e.target.value);
-                  setErrors((prev) => ({ ...prev, availableSeats: undefined }));
-                  updateField("availableSeats", e.target.value);
-                }}
+                onChange={(e) => handleSeatsChange(e.target.value)}
               />
               {errors.availableSeats && (
-                <p className="text-sm text-destructive">
-                  {errors.availableSeats}
-                </p>
+                <p className="text-xs font-medium text-destructive">{errors.availableSeats}</p>
               )}
             </div>
 
+            {/* 4. Fare per seat input */}
             <div className="space-y-1.5">
-              <Label htmlFor="farePerSeat">Fare per Seat (₹)</Label>
+              <Label htmlFor="fare-per-seat">Fare per Seat (₹)</Label>
               <Input
-                id="farePerSeat"
+                id="fare-per-seat"
                 type="number"
-                min="0"
-                max="5000"
-                step="10"
+                min={0}
+                max={5000}
+                step={10}
                 value={farePerSeat}
-                onChange={(e) => {
-                  setFarePerSeat(e.target.value);
-                  setErrors((prev) => ({ ...prev, farePerSeat: undefined }));
-                  updateField("farePerSeat", e.target.value);
-                }}
+                onChange={(e) => handleFareChange(e.target.value)}
               />
               {errors.farePerSeat && (
-                <p className="text-sm text-destructive">
-                  {errors.farePerSeat}
-                </p>
+                <p className="text-xs font-medium text-destructive">{errors.farePerSeat}</p>
               )}
             </div>
           </div>
         </section>
 
-        {hasAnyValue && previewValues.success && (
-          <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+        {/* 7. Preview card */}
+        {showPreview && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-3">
             <h3 className="text-sm font-semibold text-foreground">
               Form Preview
             </h3>
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
-                <MapPin className="size-4 text-muted-foreground" />
+                <MapPin className="size-4 shrink-0 text-muted-foreground" />
                 <span className="text-card-foreground">
-                  {selectedRoute?.origin_text} → {selectedRoute?.destination_text}
+                  {selectedRoute
+                    ? `${selectedRoute.origin_text} → ${selectedRoute.destination_text}`
+                    : "No route selected"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <CalendarDays className="size-4 text-muted-foreground" />
+                <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
                 <span className="text-card-foreground">
-                  {date} · {departureTime}
+                  {date || "No date"} {departureTime ? `· ${departureTime}` : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <Users className="size-4 text-muted-foreground" />
+                <Users className="size-4 shrink-0 text-muted-foreground" />
                 <span className="text-card-foreground">
-                  {previewValues.data.availableSeats} available seats
+                  {availableSeats ? `${availableSeats} available seat(s)` : "Seats not specified"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                              <span className="text-sm text-muted-foreground">₹</span>
-                              <span className="text-card-foreground">
-                                {inr(previewValues.data.farePerSeat)} per seat
-                              </span>
-                            </div>
-              <div className="flex items-center gap-2 border-t border-border pt-3 font-semibold">
-                <span>Total Fare</span>
-                <span className="text-primary">
-                  {previewValues.data.availableSeats} seats × {inr(previewValues.data.farePerSeat)} = {inr(previewValues.data.availableSeats * previewValues.data.farePerSeat)}
+                <span className="text-sm font-medium text-muted-foreground">₹</span>
+                <span className="text-card-foreground">
+                  {farePerSeat !== "" && !Number.isNaN(numFare)
+                    ? `${inr(numFare)} per seat`
+                    : "Fare not set"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-3 font-medium">
+                <span className="text-muted-foreground">Calculated Total</span>
+                <span className="text-foreground">
+                  {!Number.isNaN(numSeats) && numSeats > 0 && !Number.isNaN(numFare) && numFare >= 0
+                    ? `${numSeats} seat${numSeats === 1 ? "" : "s"} × ${inr(numFare)} = ${inr(totalFare)}`
+                    : "—"}
                 </span>
               </div>
             </div>
