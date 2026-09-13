@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAppRouteImport } from './routes/_authenticated/app'
 import { Route as AuthenticatedBookingsRouteImport } from './routes/_authenticated/bookings'
+import { Route as AuthenticatedOfferRouteImport } from './routes/_authenticated/offer'
 import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated/search'
 import { Route as AuthenticatedRideRideIdRouteImport } from './routes/_authenticated/ride.$rideId'
 
@@ -41,6 +42,11 @@ const AuthenticatedBookingsRoute = AuthenticatedBookingsRouteImport.update({
   path: '/bookings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedOfferRoute = AuthenticatedOfferRouteImport.update({
+  id: '/offer',
+  path: '/offer',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSearchRoute = AuthenticatedSearchRouteImport.update({
   id: '/search',
   path: '/search',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/app': typeof AuthenticatedAppRoute
   '/bookings': typeof AuthenticatedBookingsRoute
+  '/offer': typeof AuthenticatedOfferRoute
   '/search': typeof AuthenticatedSearchRoute
   '/ride/$rideId': typeof AuthenticatedRideRideIdRoute
 }
@@ -65,6 +72,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/app': typeof AuthenticatedAppRoute
   '/bookings': typeof AuthenticatedBookingsRoute
+  '/offer': typeof AuthenticatedOfferRoute
   '/search': typeof AuthenticatedSearchRoute
   '/ride/$rideId': typeof AuthenticatedRideRideIdRoute
 }
@@ -75,14 +83,29 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/app': typeof AuthenticatedAppRoute
   '/_authenticated/bookings': typeof AuthenticatedBookingsRoute
+  '/_authenticated/offer': typeof AuthenticatedOfferRoute
   '/_authenticated/search': typeof AuthenticatedSearchRoute
   '/_authenticated/ride/$rideId': typeof AuthenticatedRideRideIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/app' | '/bookings' | '/search' | '/ride/$rideId'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/app'
+    | '/bookings'
+    | '/offer'
+    | '/search'
+    | '/ride/$rideId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/app' | '/bookings' | '/search' | '/ride/$rideId'
+  to:
+    | '/'
+    | '/auth'
+    | '/app'
+    | '/bookings'
+    | '/offer'
+    | '/search'
+    | '/ride/$rideId'
   id:
     | '__root__'
     | '/'
@@ -90,6 +113,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/app'
     | '/_authenticated/bookings'
+    | '/_authenticated/offer'
     | '/_authenticated/search'
     | '/_authenticated/ride/$rideId'
   fileRoutesById: FileRoutesById
@@ -137,6 +161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBookingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/offer': {
+      id: '/_authenticated/offer'
+      path: '/offer'
+      fullPath: '/offer'
+      preLoaderRoute: typeof AuthenticatedOfferRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/search': {
       id: '/_authenticated/search'
       path: '/search'
@@ -157,6 +188,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppRoute: typeof AuthenticatedAppRoute
   AuthenticatedBookingsRoute: typeof AuthenticatedBookingsRoute
+  AuthenticatedOfferRoute: typeof AuthenticatedOfferRoute
   AuthenticatedSearchRoute: typeof AuthenticatedSearchRoute
   AuthenticatedRideRideIdRoute: typeof AuthenticatedRideRideIdRoute
 }
@@ -164,6 +196,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppRoute: AuthenticatedAppRoute,
   AuthenticatedBookingsRoute: AuthenticatedBookingsRoute,
+  AuthenticatedOfferRoute: AuthenticatedOfferRoute,
   AuthenticatedSearchRoute: AuthenticatedSearchRoute,
   AuthenticatedRideRideIdRoute: AuthenticatedRideRideIdRoute,
 }
