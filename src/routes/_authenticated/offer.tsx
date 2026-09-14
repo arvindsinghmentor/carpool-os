@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Clock, MapPin, Users } from "lucide-react";
+import { CalendarDays, Clock, Loader2, MapPin, Users } from "lucide-react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState, ErrorState, Loading, PageTitle } from "@/components/states";
-import { formatTime, inr, todayISO } from "@/lib/format";
+import { formatTime, inr, todayISO, errorMessage } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/offer")({
   head: () => ({
@@ -83,12 +85,14 @@ type FormErrors = {
 };
 
 function OfferPage() {
+  const navigate = useNavigate();
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [date, setDate] = useState("");
   const [departureTime, setDepartureTime] = useState("");
   const [availableSeats, setAvailableSeats] = useState("");
   const [farePerSeat, setFarePerSeat] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const routesQuery = useQuery({
     queryKey: ["offer-routes"],
@@ -181,18 +185,70 @@ function OfferPage() {
   }
 
   function handleFareChange(newFare: string) {
-    setFarePerSeat(newFare);
-    const updated = {
-      routeId: selectedRouteId,
-      date,
-      departureTime,
-      availableSeats,
-      farePerSeat: newFare,
-    };
-    setErrors(validate(updated));
-  }
-
-  const numSeats = availableSeats === "" ? NaN : Number(availableSeats);
+      setFarePerSeat(newFare);
+      const updated = {
+        routeId: selectedRouteId,
+        date,
+        departureTime,
+        availableSeats,
+        farePerSeat: newFare,
+      };
+      setErrors(validate(updated));
+    }
+  
+    async function handleSubmit(): Promise<void> {
+      const fields = {
+        routeId: selectedRouteId,
+        date,
+        departureTime,
+        availableSeats,
+        farePerSeat,
+      };
+  
+      const validationErrors = validate(fields);
+      setErrors(validationErrors);
+      if (Object.keys(validationErrors).length > 0) return;
+  
+      const parsed = publishRideSchema.safeParse({
+        routeId: fields.routeId,
+        date: fields.date,
+        departureTime: fields.departureTime,
+        availableSeats: Number(fields.availableSeats),
+        farePerSeat: Number(fields.farePerSeat),
+      });
+  
+      if (!parsed.success) return;
+  
+      setIsSubmitting(true);
+      try {
+        const { data, error } = await supabase.rpc("publish_ride", {
+          route_id: parsed.data.routeId,
+          date: parsed.data.date,
+          departure_time: parsed.data.departureTime,
+          available_seats: parsed.data.availableSeats,
+          fare_per_seat: parsed.data.farePerSeat,
+        });
+  
+        if (error) {
+          toast.error("Failed to publish ride", { description: errorMessage(error) });
+          return;
+        }
+  
+        toast.success("Ride published successfully");
+        const newRideId = data?.id as string;
+        if (newRideId) {
+          navigate({ to: "/app/ride/$rideId", params: { rideId: newRideId } });
+        }
+      } catch (err) {
+        toast.error("Failed to publish ride", {
+          description: err instanceof Error ? err.message : "An unexpected error occurred",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+  
+    const numSeats = availableSeats === "" ? NaN : Number(availableSeats);
   const numFare = farePerSeat === "" ? NaN : Number(farePerSeat);
   const totalFare = !Number.isNaN(numSeats) && !Number.isNaN(numFare) ? numSeats * numFare : 0;
 
@@ -207,7 +263,7 @@ function OfferPage() {
     <div>
       <PageTitle title="Publish a Ride" subtitle="Share your commute" />
 
-      <form className="space-y-4" onSubmit={(e) => e.preventDefault()} noValidate>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} noValidate>
         <section className="rounded-lg border border-border bg-card p-4 space-y-4">
           <div>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -388,6 +444,34 @@ function OfferPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* 8. Submit button */}
+        {Boolean(selectedRouteId) &&
+          date &&
+          departureTime &&
+          !Number.isNaN(numSeats) &&
+          numSeats >= 1 &&
+          numSeats <= 6 &&
+          !Number.isNaN(numFare) &&
+          numFare >= 0 &&
+          !errors.routeId &&
+          !errors.date &&
+          !errors.departureTime &&
+          !errors.availableSeats &&
+          !errors.farePerSeat && (
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full"
+            onClick={handleSubmit}
+          >
+            {isSubmitting ? (
+              <Loader2 className="mr-2 size-4 animate-spin" /> Publishing Ride
+            ) : (
+              "Publish Ride"
+            )}
+          </Button>
         )}
       </form>
     </div>
